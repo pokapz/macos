@@ -1,4 +1,4 @@
-name: MacOS VNC Full
+name: MacOS VNC Cloudflared
 
 on: workflow_dispatch
 
@@ -11,27 +11,25 @@ jobs:
         run: |
           brew install --cask google-chrome
           
-          curl -L "https://github.com/ekzhang/bore/releases/download/v0.5.1/bore-v0.5.1-aarch64-apple-darwin.tar.gz" -o bore.tar.gz
-          tar -xzf bore.tar.gz
+          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64 -o cloudflared
+          chmod +x cloudflared
           
           PASSWORD=$(LC_ALL=C tr -dc 'A-Za-z0-9!@#$%^&*()_+' </dev/urandom | head -c 15)
           
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -allowAccessFor -allUsers -privs -all -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw $PASSWORD -restart -agent
           
-          ./bore local 5900 --to bore.pub > tunnel.log 2>&1 &
+          ./cloudflared tunnel --url localhost:5900 > tunnel.log 2>&1 &
           
           TUNNEL_URL=""
-          for i in {1..30}; do
-            sleep 2
-            if [ -f tunnel.log ]; then
-              TUNNEL_URL=$(grep "listening at bore.pub:" tunnel.log | awk '{print $NF}' | tail -1)
-              if [ ! -z "$TUNNEL_URL" ]; then
-                break
-              fi
+          for i in {1..40}; do
+            sleep 3
+            if grep -q "trycloudflare.com" tunnel.log; then
+              TUNNEL_URL=$(grep -o "https://[a-z0-9.-]*trycloudflare.com" tunnel.log | tail -1)
+              break
             fi
           done
           
-          if [ -z "$TUNNEL_URL" ]; then exit 1; fi
+          if [ -z "$TUNNEL_URL" ]; then echo "Tunnel failed"; exit 1; fi
 
           echo "==============  топчик  ====================="
           echo "адрес:      $TUNNEL_URL"
