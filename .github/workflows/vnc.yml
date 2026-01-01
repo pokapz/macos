@@ -1,4 +1,4 @@
-name: MacOS VNC Pinggy
+name: MacOS VNC Pinggy Fixed
 
 on: workflow_dispatch
 
@@ -9,36 +9,33 @@ jobs:
       - name: Setup VNC and Pinggy Tunnel
         run: |
           PASSWORD=$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9!@#$%^&*()_+')
+          echo "Пароль VNC: $PASSWORD"
+          echo "::notice title=Пароль VNC::$PASSWORD"
 
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on -allowAccessFor -allUsers -privs -all \
             -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$PASSWORD" -restart -agent
 
-          curl -s https://pinggy.io/tunnel | ssh -p 443 -o StrictHostKeyChecking=no -R0:localhost:5900 a.pinggy.io > tunnel.log 2>&1 &
+          curl -s https://pinggy.io/tunnel | ssh -T -f -p 443 -o StrictHostKeyChecking=no -R0:localhost:5900 a.pinggy.io
 
-          TUNNEL_URL=""
-          for i in {1..40}; do
-            sleep 3
-            if grep -q "https://.*\.a\.pinggy\.io" tunnel.log; then
-              TUNNEL_URL=$(grep -o "https://[a-z0-9]\+\.a\.pinggy\.io" tunnel.log | tail -1)
-              PORT=$(echo $TUNNEL_URL | grep -o "[0-9]\+$")
-              FULL_ADDR="${TUNNEL_URL##https://}"
-              break
-            fi
-          done
+          sleep 15
+
+          TUNNEL_LOG=$(curl -s https://pinggy.io/tunnel | ssh -T -p 443 -o StrictHostKeyChecking=no -R0:localhost:5900 a.pinggy.io 2>&1 || true)
+          TUNNEL_URL=$(echo "$TUNNEL_LOG" | grep -o "https://[a-z0-9-]*\.a\.pinggy\.link" | tail -1)
+          FREE_URL=$(echo "$TUNNEL_LOG" | grep -o "https://[a-z0-9-]*\.a\.free\.pinggy\.link" | tail -1)
 
           if [ -z "$TUNNEL_URL" ]; then
-            echo "Туннель не запустился :("
-            cat tunnel.log
+            echo "не удалось получить ссылку туннеля"
             exit 1
           fi
 
+          HOST=$(echo $TUNNEL_URL | sed 's/https:\/\///')
+
           echo "==============  топчик  ====================="
-          echo "адрес: $FULL_ADDR"
-          echo "пароль VNC: $PASSWORD"
+          echo "адрес: $HOST"
+          echo "паоль: $PASSWORD"
           echo "============================================="
 
-          echo "::notice title=VNC Ready::Host: $FULL_ADDR (port 5900) | Pass: $PASSWORD"
+          echo "::notice title=VNC Ready::Host: $HOST | Pass: $PASSWORD"
 
-          # Держим 6 часов
           sleep 21600
