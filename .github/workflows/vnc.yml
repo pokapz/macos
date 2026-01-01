@@ -1,4 +1,4 @@
-name: MacOS VNC Cloudflared
+name: MacOS VNC Pinggy
 
 on: workflow_dispatch
 
@@ -6,46 +6,39 @@ jobs:
   vnc:
     runs-on: macos-latest
     steps:
-      - name: Deploy
-        shell: bash
+      - name: Setup VNC and Pinggy Tunnel
         run: |
-          # Chrome уже есть, но если хочешь — оставь (предупреждение не страшно)
-          # brew install --cask google-chrome
-          
-          # Скачиваем актуальный cloudflared для Apple Silicon (arm64)
-          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz -o cloudflared.tgz
-          tar -xzf cloudflared.tgz
-          chmod +x cloudflared
-          
-          PASSWORD=$(LC_ALL=C tr -dc 'A-Za-z0-9!@#$%^&*()_+' </dev/urandom | head -c 15)
-          
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -allowAccessFor -allUsers -privs -all -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw $PASSWORD -restart -agent
-          
-          ./cloudflared tunnel --url vnc://localhost:5900 > tunnel.log 2>&1 &
-          
+          PASSWORD=$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9!@#$%^&*()_+')
+
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate -configure -access -on -allowAccessFor -allUsers -privs -all \
+            -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$PASSWORD" -restart -agent
+
+          curl -s https://pinggy.io/tunnel | ssh -p 443 -o StrictHostKeyChecking=no -R0:localhost:5900 a.pinggy.io > tunnel.log 2>&1 &
+
           TUNNEL_URL=""
-          for i in {1..50}; do
+          for i in {1..40}; do
             sleep 3
-            if grep -q "trycloudflare.com" tunnel.log; then
-              TUNNEL_URL=$(grep -o "https://[a-z0-9.-]*\.trycloudflare\.com" tunnel.log | tail -1)
-              if [ ! -z "$TUNNEL_URL" ]; then
-                break
-              fi
+            if grep -q "https://.*\.a\.pinggy\.io" tunnel.log; then
+              TUNNEL_URL=$(grep -o "https://[a-z0-9]\+\.a\.pinggy\.io" tunnel.log | tail -1)
+              PORT=$(echo $TUNNEL_URL | grep -o "[0-9]\+$")
+              FULL_ADDR="${TUNNEL_URL##https://}"
+              break
             fi
           done
-          
-          if [ -z "$TUNNEL_URL" ]; then 
-            echo "Tunnel failed to start"
+
+          if [ -z "$TUNNEL_URL" ]; then
+            echo "Туннель не запустился :("
             cat tunnel.log
             exit 1
           fi
 
           echo "==============  топчик  ====================="
-          echo "адрес:      $TUNNEL_URL"
-          echo "юзер:       (VNC password only)"
-          echo "пароль:     $PASSWORD"
+          echo "адрес: $FULL_ADDR"
+          echo "пароль VNC: $PASSWORD"
           echo "============================================="
-          
-          echo "::notice title=VNC Access::Host: $TUNNEL_URL | User: (VNC password only) | Pass: $PASSWORD"
-          
+
+          echo "::notice title=VNC Ready::Host: $FULL_ADDR (port 5900) | Pass: $PASSWORD"
+
+          # Держим 6 часов
           sleep 21600
