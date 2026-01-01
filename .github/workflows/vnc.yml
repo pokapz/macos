@@ -1,4 +1,4 @@
-name: MacOS VNC Pinggy Final
+name: MacOS VNC Pinggy Free
 
 on: workflow_dispatch
 
@@ -8,7 +8,7 @@ jobs:
     steps:
       - name: Setup VNC and Pinggy Tunnel
         run: |
-          # Пароль сразу выводим — не потеряем
+          # Пароль выводим сразу
           PASSWORD=$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9!@#$%^&*()_+')
           echo "==============  топчик  ====================="
           echo "Пароль VNC: $PASSWORD"
@@ -20,20 +20,27 @@ jobs:
             -activate -configure -access -on -allowAccessFor -allUsers -privs -all \
             -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$PASSWORD" -restart -agent
 
-          # Запуск Pinggy в фоне правильно: -T (no tty), -f (background), -N (no command), -o ExitOnForwardFailure=yes (чтобы падал если не коннект)
-          nohup sh -c "curl -s https://pinggy.io/tunnel | ssh -T -f -N -p 443 -o StrictHostKeyChecking=no -R0:localhost:5900 a.pinggy.io" > tunnel.log 2>&1 &
+          # Запуск Pinggy free TCP в фоне (qr@ — без токена, -N -T -f для non-interactive)
+          nohup ssh -T -f -N -p 443 -o StrictHostKeyChecking=no -R0:localhost:5900 qr@free.pinggy.io > tunnel.log 2>&1 &
 
-          # Ждём 20–30 сек и захватываем ссылку (Pinggy выводит в stdout/stderr)
-          sleep 25
+          # Ждём 30 сек и выводим лог с адресом
+          sleep 30
           cat tunnel.log
 
-          TUNNEL_URL=$(grep -o "https://[a-z0-9.-]*\.a\.pinggy\.link" tunnel.log | tail -1 || echo "")
-          if [ -z "$TUNNEL_URL" ]; then
-            echo "Туннель не запустился, смотри лог выше"
+          # Парсим адрес
+          TUNNEL_URL=$(grep -o "https://[a-z0-9.-]*\.free\.pinggy\.link" tunnel.log | tail -1 || echo "Не найдено")
+          if [ "$TUNNEL_URL" = "Не найдено" ]; then
+            grep -o "https://[a-z0-9.-]*\.a\.pinggy\.link" tunnel.log | tail -1 || echo "Туннель не запустился"
+          else
+            echo "$TUNNEL_URL"
+          fi > tunnel_url.txt
+
+          HOST=$(cat tunnel_url.txt | sed 's/https:\/\///')
+
+          if [ -z "$HOST" ]; then
+            echo "Ошибка туннеля, смотри лог выше"
             exit 1
           fi
-
-          HOST=$(echo "$TUNNEL_URL" | sed 's/https:\/\///')
 
           echo "==============  топчик  ====================="
           echo "Адрес: $HOST"
