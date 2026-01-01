@@ -1,4 +1,4 @@
-name: MacOS VNC Pinggy Fixed
+name: MacOS VNC Pinggy Final
 
 on: workflow_dispatch
 
@@ -8,34 +8,38 @@ jobs:
     steps:
       - name: Setup VNC and Pinggy Tunnel
         run: |
+          # Пароль сразу выводим — не потеряем
           PASSWORD=$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9!@#$%^&*()_+')
+          echo "==============  топчик  ====================="
           echo "Пароль VNC: $PASSWORD"
-          echo "::notice title=Пароль VNC::$PASSWORD"
+          echo "============================================="
+          echo "::notice title=VNC Password::$PASSWORD"
 
+          # Включаем VNC
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on -allowAccessFor -allUsers -privs -all \
             -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw "$PASSWORD" -restart -agent
 
-          curl -s https://pinggy.io/tunnel | ssh -T -f -p 443 -o StrictHostKeyChecking=no -R0:localhost:5900 a.pinggy.io
+          # Запуск Pinggy в фоне правильно: -T (no tty), -f (background), -N (no command), -o ExitOnForwardFailure=yes (чтобы падал если не коннект)
+          nohup sh -c "curl -s https://pinggy.io/tunnel | ssh -T -f -N -p 443 -o StrictHostKeyChecking=no -R0:localhost:5900 a.pinggy.io" > tunnel.log 2>&1 &
 
-          sleep 15
+          # Ждём 20–30 сек и захватываем ссылку (Pinggy выводит в stdout/stderr)
+          sleep 25
+          cat tunnel.log
 
-          TUNNEL_LOG=$(curl -s https://pinggy.io/tunnel | ssh -T -p 443 -o StrictHostKeyChecking=no -R0:localhost:5900 a.pinggy.io 2>&1 || true)
-          TUNNEL_URL=$(echo "$TUNNEL_LOG" | grep -o "https://[a-z0-9-]*\.a\.pinggy\.link" | tail -1)
-          FREE_URL=$(echo "$TUNNEL_LOG" | grep -o "https://[a-z0-9-]*\.a\.free\.pinggy\.link" | tail -1)
-
+          TUNNEL_URL=$(grep -o "https://[a-z0-9.-]*\.a\.pinggy\.link" tunnel.log | tail -1 || echo "")
           if [ -z "$TUNNEL_URL" ]; then
-            echo "не удалось получить ссылку туннеля"
+            echo "Туннель не запустился, смотри лог выше"
             exit 1
           fi
 
-          HOST=$(echo $TUNNEL_URL | sed 's/https:\/\///')
+          HOST=$(echo "$TUNNEL_URL" | sed 's/https:\/\///')
 
           echo "==============  топчик  ====================="
-          echo "адрес: $HOST"
-          echo "паоль: $PASSWORD"
+          echo "Адрес: $HOST"
+          echo "Порт: 5900"
+          echo "Пароль VNC: $PASSWORD"
           echo "============================================="
-
-          echo "::notice title=VNC Ready::Host: $HOST | Pass: $PASSWORD"
+          echo "::notice title=VNC Ready::Host: $HOST (port 5900) | Pass: $PASSWORD"
 
           sleep 21600
