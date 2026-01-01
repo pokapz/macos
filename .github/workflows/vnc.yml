@@ -9,33 +9,43 @@ jobs:
       - name: Deploy
         shell: bash
         run: |
-          brew install --cask google-chrome
+          # Chrome уже есть, но если хочешь — оставь (предупреждение не страшно)
+          # brew install --cask google-chrome
           
-          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64 -o cloudflared
+          # Скачиваем актуальный cloudflared для Apple Silicon (arm64)
+          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz -o cloudflared.tgz
+          tar -xzf cloudflared.tgz
           chmod +x cloudflared
           
           PASSWORD=$(LC_ALL=C tr -dc 'A-Za-z0-9!@#$%^&*()_+' </dev/urandom | head -c 15)
           
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -allowAccessFor -allUsers -privs -all -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw $PASSWORD -restart -agent
           
-          ./cloudflared tunnel --url localhost:5900 > tunnel.log 2>&1 &
+          ./cloudflared tunnel --url vnc://localhost:5900 > tunnel.log 2>&1 &
           
           TUNNEL_URL=""
-          for i in {1..40}; do
+          for i in {1..50}; do
             sleep 3
             if grep -q "trycloudflare.com" tunnel.log; then
-              TUNNEL_URL=$(grep -o "https://[a-z0-9.-]*trycloudflare.com" tunnel.log | tail -1)
-              break
+              TUNNEL_URL=$(grep -o "https://[a-z0-9.-]*\.trycloudflare\.com" tunnel.log | tail -1)
+              if [ ! -z "$TUNNEL_URL" ]; then
+                break
+              fi
             fi
           done
           
-          if [ -z "$TUNNEL_URL" ]; then echo "Tunnel failed"; exit 1; fi
+          if [ -z "$TUNNEL_URL" ]; then 
+            echo "Tunnel failed to start"
+            cat tunnel.log
+            exit 1
+          fi
 
           echo "==============  топчик  ====================="
           echo "адрес:      $TUNNEL_URL"
+          echo "юзер:       (VNC password only)"
           echo "пароль:     $PASSWORD"
           echo "============================================="
           
-          echo "::notice title=VNC Access::Host: $TUNNEL_URL | Pass: $PASSWORD"
+          echo "::notice title=VNC Access::Host: $TUNNEL_URL | User: (VNC password only) | Pass: $PASSWORD"
           
           sleep 21600
